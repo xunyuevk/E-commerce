@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+.venv/
+venv/
+dist/
+build/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Env（含真实 Key，绝不入库）
+.env
+.env.local
+.env.*.local
+
+# 本地数据 / 运行时产物
+docker-data/
+data/
+*.db
+*.sqlite3
+runs/
+models/
+outputs/
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# Agent / 工具运行状态（含会话记忆与账本，绝不入库）
+.dshwolf/
+*.log
+
+# 私有面试准备文档（复盘/演示剧本/对照表等，仅本机使用，不入库）
+docs/

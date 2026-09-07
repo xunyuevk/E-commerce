@@ -1,0 +1,105 @@
+# ShopMind 电商客服 AI —— 本地 4 中间件（数据底座）
+#
+# 设计要点（面试可讲）：
+#   - 只跑 4 个中间件：MySQL8 / ES8 / Redis / MinIO，模型全部走云端 API（零本地模型部署）
+#   - ES 内存锁在 2G（16G 机器分批跑防爆内存）；开发期关闭安全认证（xpack.security.enabled=false）
+#   - 命名卷默认落在 Docker data-root（建议配到非系统盘），无需额外盘符绑定
+#   - 向量维度由 .env 的 EMBEDDING_DIM 决定（默认 1024），须与 embedding 模型输出对齐
+#
+# 启动：docker compose up -d
+# 查看：docker compose ps
+# 停止：docker compose down（数据保留）；docker compose down -v（连数据一起删）
+
+name: shopmind
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: shopmind-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root_pass}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-shopmind}
+      MYSQL_USER: ${MYSQL_USER:-shop}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-shop_pass}
+      TZ: Asia/Shanghai
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    ports:
+      # 本机存在原生 mysqld 占用 3306，Docker MySQL 默认映射到 3307
+      - "${MYSQL_PORT:-3307}:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./infra/mysql/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -uroot -p${MYSQL_ROOT_PASSWORD:-root_pass} --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.17.0
+    container_name: shopmind-es
+    restart: unless-stopped
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - xpack.security.http.ssl.enabled=false
+      - bootstrap.memory_lock=true
+      # 内存上限 2G（16G 机器的重要约束；Xms 与 Xmx 一致避免 GC 抖动）
+      - ES_JAVA_OPTS=-Xms512m -Xmx2g
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    ports:
+      - "${ES_PORT:-9200}:9200"
+    volumes:
+      - es-data:/usr/share/elasticsearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9200/_cluster/health >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+
+  redis:
+    image: redis:7-alpine
+    container_name: shopmind-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  minio:
+    image: minio/minio:latest
+    container_name: shopmind-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-minioadmin}
+    ports:
+      # 9000/9001 落在 Windows Hyper-V 保留端口区间(8941-9040)，改映射到 19000/19001
+      - "${MINIO_PORT:-19000}:9000"
+      - "${MINIO_CONSOLE_PORT:-19001}:9001"
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+
+volumes:
+  mysql-data:
+  es-data:
+  redis-data:
+  minio-data:
