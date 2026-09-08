@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ShopMind 直播切片洞察 · 演示台</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif; background: #f4f6fb; color: #1f2430; height: 100vh; display: flex; flex-direction: column; }
+  header { background: linear-gradient(135deg, #1f6f5c, #2b8a6e); color: #fff; padding: 14px 22px; display: flex; align-items: baseline; gap: 12px; }
+  header h1 { font-size: 18px; font-weight: 600; }
+  header span { font-size: 12px; opacity: .85; }
+  #bar { background: #fff; border-bottom: 1px solid #dfe5f0; padding: 12px 20px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  #bar select { padding: 8px 12px; border: 1px solid #cdd6e8; border-radius: 8px; font-size: 14px; min-width: 200px; }
+  #bar button { background: #2b8a6e; color: #fff; border: none; border-radius: 8px; padding: 8px 18px; cursor: pointer; font-size: 14px; }
+  #bar button:disabled { background: #9ab; cursor: wait; }
+  #sliceZone { background: #fff; border-bottom: 1px solid #dfe5f0; padding: 12px 20px; }
+  #sliceZone .label { font-size: 13px; color: #556080; margin-bottom: 6px; }
+  #sliceZone .row2 { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  #sliceReq { flex: 1; min-width: 260px; padding: 9px 12px; border: 1px solid #cdd6e8; border-radius: 8px; font-size: 14px; }
+  #segCount { width: 70px; padding: 8px; border: 1px solid #cdd6e8; border-radius: 8px; }
+  #sliceBtn { background: #1f6f5c; }
+  #sliceHint { font-size: 12px; color: #8a94a8; margin-left: 6px; }
+  #videoTag { font-size: 12px; color: #556080; background: #eef1f8; border-radius: 6px; padding: 3px 10px; }
+  #main { flex: 1; overflow-y: auto; padding: 18px 22px; }
+  #info { color: #556080; font-size: 13px; margin-bottom: 14px; }
+  .seg { background: #fff; border: 1px solid #e3e8f2; border-radius: 10px; padding: 12px 16px; margin-bottom: 12px; display: flex; gap: 14px; }
+  .idx { font-size: 26px; font-weight: 700; color: #2b8a6e; min-width: 40px; text-align: center; }
+  .body { flex: 1; }
+  .title { font-size: 15px; font-weight: 600; margin-bottom: 4px; }
+  .sum { font-size: 13px; color: #445; line-height: 1.5; }
+  .meta { margin-top: 8px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .tag { padding: 1px 9px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+  .tag.neg { background: #fdeaea; color: #c62828; }
+  .tag.pos { background: #e3f6e8; color: #1a7f37; }
+  .tag.neu { background: #eef1f8; color: #556080; }
+  .tag.time { background: #eef1f8; color: #2b3a67; }
+  .tag.clip { background: #fff3d6; color: #9a6700; }
+  .tag.noclip { background: #f0f2f7; color: #98a0b3; }
+  .prod { font-size: 12px; color: #2b3a67; }
+  video { width: 100%; max-width: 360px; border-radius: 8px; background: #000; margin-top: 8px; }
+  .status-dot { width: 8px; height: 8px; border-radius: 50%; background: #f2c037; display: inline-block; margin-right: 5px; }
+  .status-dot.up { background: #2da44e; }
+</style>
+</head>
+<body>
+<header>
+  <h1>ShopMind 直播切片洞察</h1>
+  <span>ASR → 语义分段 → 商品关联 → 回血知识库</span>
+  <span id="healthTag" style="margin-left:auto;font-size:12px;"><span class="status-dot" id="hdot"></span><span id="htext">检查服务中…</span></span>
+</header>
+<div id="sliceZone">
+  <div class="row2">
+    <label style="font-size:13px;color:#556080;">视频：</label>
+    <select id="videoSel" style="min-width:160px;padding:8px;border:1px solid #cdd6e8;border-radius:8px;font-size:13px;"><option>加载中…</option></select>
+    <select id="modeSel" style="padding:8px;border:1px solid #cdd6e8;border-radius:8px;font-size:13px;" title="切分方式">
+      <option value="llm">LLM 需求规划（默认）</option>
+      <option value="rule">关键词规则</option>
+    </select>
+    <input id="sliceReq" placeholder="LLM 模式输入切分需求，如：按带货步骤拆成几大段" autocomplete="off">
+    <input id="segCount" type="number" min="2" max="8" value="4" title="段数（LLM 模式）">
+    <button id="sliceBtn">开始切片</button>
+    <span id="sliceHint"></span>
+  </div>
+</div>
+<div id="bar">
+  <label style="font-size:13px;color:#556080;">切片记录：</label>
+  <select id="sessSel"><option>加载中…</option></select>
+  <button id="loadBtn">查看</button>
+</div>
+<div id="main">
+  <div id="info">在上方输入需求让 LLM 规划切片；或选择场次查看历史切片。</div>
+  <div id="segs"></div>
+</div>
+<script>
+const $sess = document.getElementById('sessSel');
+const $load = document.getElementById('loadBtn');
+const $segs = document.getElementById('segs');
+const $info = document.getElementById('info');
+
+const SENT = { negative: ['neg','负面'], positive: ['pos','正面'], neutral: ['neu','中性'] };
+
+fetch('/health').then(r => r.json()).then(j => {
+  document.getElementById('hdot').className = 'status-dot up';
+  document.getElementById('htext').textContent = j.service + ' · ok';
+}).catch(() => { document.getElementById('htext').textContent = '服务不可达'; });
+
+fetch('/sessions').then(r => r.json()).then(list => {
+  $sess.innerHTML = '';
+  if (!list.length) { $sess.innerHTML = '<option>暂无切片记录</option>'; return; }
+  // list 按 id DESC（最新在前），倒过来编号：最新 = 第 1 条
+  const ordered = [...list].reverse();  // 旧→新
+  ordered.forEach((s, i) => {
+    const o = document.createElement('option');
+    o.value = s.id;
+    o.textContent = `第 ${ordered.length - i} 次切片 · ${s.session_no}`;
+    $sess.appendChild(o);
+  });
+  // 默认选中最新一次（list[0] 即最新）
+  $sess.selectedIndex = 0;
+  loadSegments();
+}).catch(e => { $info.textContent = '加载切片记录失败：' + e.message; });
+
+function loadSegments() {
+  const id = $sess.value;
+  if (!id) return;
+  $load.disabled = true;
+  fetch('/segments?session_id=' + id).then(r => r.json()).then(d => {
+    $info.textContent = `场次 ${d.session_no} · 共 ${d.segments.length} 段`;
+    $segs.innerHTML = '';
+    d.segments.forEach(s => {
+      const div = document.createElement('div');
+      div.className = 'seg';
+      const st = SENT[s.sentiment] || ['neu', s.sentiment || '中性'];
+      const hasClip = !!s.clip_object_key;
+      const products = (s.product_ids || []).join('、') || '-';
+      div.innerHTML = `
+        <div class="idx">${s.seq}</div>
+        <div class="body">
+          <div class="title">${s.topic || '互动/其他'}</div>
+          <div class="sum">${s.summary || ''}</div>
+          <div class="meta">
+            <span class="tag time">${s.start_sec}s–${s.end_sec}s</span>
+            <span class="tag ${st[0]}">${st[1]}</span>
+            <span class="tag ${hasClip ? 'clip' : 'noclip'}">${hasClip ? '视频片段已切' : '无视频片段'}</span>
+            <span class="prod">商品：${products}</span>
+          </div>
+          ${hasClip ? `<video controls src="/clip?key=${encodeURIComponent(s.clip_object_key)}" preload="metadata"></video>` : ''}
+        </div>`;
+      $segs.appendChild(div);
+    });
+  }).catch(e => { $info.textContent = '加载切片失败：' + e.message; })
+  .finally(() => { $load.disabled = false; });
+}
+
+$load.addEventListener('click', loadSegments);
+$sess.addEventListener('change', loadSegments);
+
+// ---------- 交互式 LLM 切片 ----------
+const $sliceReq = document.getElementById('sliceReq');
+const $segCount = document.getElementById('segCount');
+const $sliceBtn = document.getElementById('sliceBtn');
+const $sliceHint = document.getElementById('sliceHint');
+const $videoSel = document.getElementById('videoSel');
+
+fetch('/video').then(r => r.json()).then(d => {
+  $videoSel.innerHTML = '';
+  const vids = d.videos || [];
+  if (!vids.length) { $videoSel.innerHTML = '<option value="">无视频</option>'; return; }
+  vids.forEach(v => {
+    const o = document.createElement('option');
+    o.value = v;
+    o.textContent = v;
+    $videoSel.appendChild(o);
+  });
+}).catch(() => { $videoSel.innerHTML = '<option value="">加载失败</option>'; });
+
+$sliceBtn.addEventListener('click', startSlice);
+$sliceReq.addEventListener('keydown', e => { if (e.key === 'Enter') startSlice(); });
+
+async function startSlice() {
+  const mode = document.getElementById('modeSel').value;
+  const req = $sliceReq.value.trim();
+  if (mode === 'llm' && !req) { $sliceHint.textContent = 'LLM 模式请输入切分需求'; return; }
+  $sliceBtn.disabled = true;
+  $sliceHint.textContent = '提交中…';
+  try {
+    const r = await fetch('/slice', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        requirement: req || null,
+        seg_count: parseInt($segCount.value) || null,
+        video: $videoSel.value || null,
+        mode: mode,
+      }),
+    });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const d = await r.json();
+    pollSlice(d.job_id);
+  } catch (e) {
+    $sliceHint.textContent = '提交失败：' + e.message;
+    $sliceBtn.disabled = false;
+  }
+}
+
+async function pollSlice(jobId) {
+  $sliceHint.textContent = '切片中（ASR 识别 + 切分，约 1~3 分钟）…';
+  const timer = setInterval(async () => {
+    try {
+      const r = await fetch('/slice-status/' + jobId);
+      const d = await r.json();
+      if (d.error) {
+        $sliceHint.textContent = '切片失败：' + d.error;
+        $sliceBtn.disabled = false;
+        clearInterval(timer);
+        return;
+      }
+      if (d.result) {
+        clearInterval(timer);
+        $sliceHint.textContent = `切片完成：${d.result.segments} 段已生成（新切片记录已加入上方列表）`;
+        $sliceBtn.disabled = false;
+        // 重新加载切片记录列表（新场次在前），自动选中最新并展示
+        reloadSessions();
+        return;
+      }
+      $sliceHint.textContent = '切片中（' + new Date().toLocaleTimeString() + '）…';
+    } catch (e) {
+      $sliceHint.textContent = '查询状态失败：' + e.message;
+    }
+  }, 5000);
+}
+
+function reloadSessions() {
+  fetch('/sessions').then(r => r.json()).then(list => {
+    if (!list.length) { $sess.innerHTML = '<option>暂无切片记录</option>'; $segs.innerHTML = ''; return; }
+    const ordered = [...list].reverse();
+    $sess.innerHTML = '';
+    ordered.forEach((s, i) => {
+      const o = document.createElement('option');
+      o.value = s.id;
+      o.textContent = `第 ${ordered.length - i} 次切片 · ${s.session_no}`;
+      $sess.appendChild(o);
+    });
+    $sess.selectedIndex = 0;   // 选中最新（list[0]）
+    loadSegments();
+  }).catch(() => {});
+}
+</script>
+</body>
+</html>
