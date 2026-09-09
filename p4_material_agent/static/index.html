@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ShopMind 素材生产 Agent · 演示台</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif; background: #f4f6fb; color: #1f2430; height: 100vh; display: flex; flex-direction: column; }
+  header { background: linear-gradient(135deg, #6b3fa0, #8a5cc4); color: #fff; padding: 14px 22px; display: flex; align-items: baseline; gap: 12px; }
+  header h1 { font-size: 18px; font-weight: 600; }
+  header span { font-size: 12px; opacity: .85; }
+  #main { flex: 1; overflow-y: auto; padding: 18px 24px; display: flex; gap: 20px; }
+  #left { width: 340px; background: #fff; border: 1px solid #e3e8f2; border-radius: 10px; padding: 16px; height: fit-content; }
+  #right { flex: 1; }
+  .fld { margin-bottom: 12px; }
+  .fld label { display: block; font-size: 13px; color: #556080; margin-bottom: 4px; }
+  .fld select, .fld input { width: 100%; padding: 8px 10px; border: 1px solid #cdd6e8; border-radius: 8px; font-size: 14px; }
+  button { background: #8a5cc4; color: #fff; border: none; border-radius: 8px; padding: 9px 16px; cursor: pointer; font-size: 14px; }
+  button:disabled { background: #b9a6d8; cursor: wait; }
+  button.sec { background: #6b7a99; margin-right: 8px; }
+  .task { background: #fff; border: 1px solid #e3e8f2; border-radius: 10px; padding: 14px 18px; margin-bottom: 14px; }
+  .task .no { font-family: monospace; font-size: 13px; color: #6b3fa0; }
+  .state { font-weight: 700; padding: 1px 10px; border-radius: 12px; font-size: 12px; }
+  .st-generating { background: #eef1f8; color: #556080; }
+  .st-compliance_check { background: #fff3d6; color: #9a6700; }
+  .st-human_review { background: #fdeaea; color: #c62828; }
+  .st-approved { background: #e3f6e8; color: #1a7f37; }
+  .st-published { background: #e3f6e8; color: #1a7f37; }
+  .st-rejected, .st-failed { background: #eee; color: #888; }
+  pre { background: #f6f8fc; border: 1px solid #e3e8f2; border-radius: 8px; padding: 10px; font-size: 12px; white-space: pre-wrap; word-break: break-word; }
+  .status-dot { width: 8px; height: 8px; border-radius: 50%; background: #f2c037; display: inline-block; margin-right: 5px; }
+  .status-dot.up { background: #2da44e; }
+  #log { font-size: 12px; color: #66708a; line-height: 1.6; }
+</style>
+</head>
+<body>
+<header>
+  <h1>ShopMind 素材生产 Agent</h1>
+  <span>取数 → 生成 → 合规 → 人工审核 → 发布回血</span>
+  <span id="healthTag" style="margin-left:auto;font-size:12px;"><span class="status-dot" id="hdot"></span><span id="htext">检查服务中…</span></span>
+</header>
+<div id="main">
+  <div id="left">
+    <div class="fld"><label>任务类型</label>
+      <select id="type">
+        <option value="product_copy">商品文案 (product_copy)</option>
+        <option value="live_highlight">直播切片文案 (live_highlight)</option>
+        <option value="faq_expansion">FAQ 扩展 (faq_expansion)</option>
+      </select>
+    </div>
+    <div class="fld" id="fldProduct"><label>选择商品</label><select id="product"></select></div>
+    <div class="fld" id="fldSeg" style="display:none"><label>切片 ID</label><input id="segmentId" placeholder="live_segment.id"></div>
+    <div class="fld" id="fldTopic" style="display:none"><label>主题</label><input id="topic" placeholder="如：退换货政策"></div>
+    <button id="create">创建任务并推进到人工审核</button>
+    <div id="log" style="margin-top:12px;"></div>
+  </div>
+  <div id="right"><div id="tasks"></div></div>
+</div>
+<script>
+const $type = document.getElementById('type');
+const $log = document.getElementById('log');
+const $tasks = document.getElementById('tasks');
+let curTask = null;
+
+fetch('/health').then(r => r.json()).then(j => {
+  document.getElementById('hdot').className = 'status-dot up';
+  document.getElementById('htext').textContent = j.service + ' · ok';
+}).catch(() => document.getElementById('htext').textContent = '服务不可达');
+
+fetch('/products').then(r => r.json()).then(list => {
+  const sel = document.getElementById('product');
+  list.forEach(p => { const o = document.createElement('option'); o.value = p.id; o.textContent = `${p.id} ${p.name}`; sel.appendChild(o); });
+});
+
+$type.addEventListener('change', () => {
+  document.getElementById('fldProduct').style.display = ($type.value === 'product_copy') ? '' : 'none';
+  document.getElementById('fldSeg').style.display = ($type.value === 'live_highlight') ? '' : 'none';
+  document.getElementById('fldTopic').style.display = ($type.value === 'faq_expansion') ? '' : 'none';
+});
+
+function log(msg) { $log.textContent += msg + '\n'; $log.scrollTop = $log.scrollHeight; }
+
+async function createTask() {
+  const type = $type.value;
+  const body = { task_type: type };
+  if (type === 'product_copy') body.product_id = parseInt(document.getElementById('product').value);
+  if (type === 'live_highlight') body.segment_id = parseInt(document.getElementById('segmentId').value);
+  if (type === 'faq_expansion') body.topic = document.getElementById('topic').value;
+  const r = await fetch('/create', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
+  if (!r.ok) { const e = await r.json(); log('创建失败：' + (e.detail || e.message || e)); return; }
+  const d = await r.json();
+  curTask = d.task_no;
+  log('已创建任务：' + curTask);
+  render(curTask, null);
+  advance();
+}
+
+async function advance() {
+  if (!curTask) return;
+  const r = await fetch('/advance/' + curTask, { method: 'POST' });
+  const d = await r.json();
+  log('推进 → ' + d.state + ' ' + (d.message || ''));
+  render(curTask, d.state);
+  // 停到 human_review 或终态后不再自动推进（HITL 需要人工）
+  if (d.state === 'human_review' || ['rejected','failed','published'].includes(d.state)) return;
+  setTimeout(advance, 1500);
+}
+
+async function render(no, hintState) {
+  const r = await fetch('/status/' + no);
+  const d = await r.json();
+  const state = hintState || d.state;
+  const stCls = 'st-' + state;
+  let resHtml = '';
+  if (d.result) resHtml = '<pre>' + JSON.stringify(d.result, null, 2) + '</pre>';
+  // 展示已生成的配图（material_output 里的 image）
+  let imgHtml = '';
+  if (d.outputs) {
+    const imgs = d.outputs.filter(o => o.content_type === 'image' && o.object_key);
+    if (imgs.length) {
+      imgHtml = '<div style="margin-top:8px">' + imgs.map(o =>
+        `<img src="/image?key=${encodeURIComponent(o.object_key)}" style="max-width:220px;border-radius:8px;border:1px solid #e3e8f2;margin-right:8px">`
+      ).join('') + '</div>';
+    }
+  }
+  $tasks.innerHTML = `
+    <div class="task">
+      <div class="no">${no}</div>
+      <div style="margin:6px 0"><span class="state ${stCls}">${state}</span>
+      ${state==='human_review' ? ' <button class="sec" onclick="review(\'approve\')">人工批准</button><button class="sec" onclick="review(\'reject\')">驳回</button>' : ''}
+      ${(state==='approved' || state==='human_review') ? ' <button onclick="publish()">发布</button>' : ''}
+      </div>
+      <div style="font-size:12px;color:#66708a;margin-bottom:6px">compliance=${d.compliance||'-'} assignee=${d.assignee||'-'}</div>
+      ${imgHtml}
+      ${resHtml}
+    </div>`;
+  window._taskNo = no;
+}
+
+async function review(decision) {
+  // 通过 CLI 同款逻辑：这里直接调状态机 approve/reject（复用 serve 后端 advance 之外的 HITL）
+  const t = window._taskNo;
+  const r = await fetch('/review/' + t, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({reviewer:'前端用户', decision}) });
+  if (!r.ok) { const e = await r.json(); log('审核失败：' + (e.detail||e.message)); return; }
+  const d = await r.json();
+  log(decision + ' → ' + d.state);
+  render(t, d.state);
+}
+
+async function publish() {
+  const t = window._taskNo;
+  const r = await fetch('/publish/' + t, { method:'POST' });
+  if (!r.ok) { const e = await r.json(); log('发布失败：' + (e.detail||e.message)); return; }
+  const d = await r.json();
+  log('发布 → ' + d.state + ' 产出：' + (d.outputs||[]).map(o=>o.content_type).join(','));
+  render(t, d.state);
+}
+
+document.getElementById('create').addEventListener('click', createTask);
+</script>
+</body>
+</html>
